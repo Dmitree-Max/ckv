@@ -10,6 +10,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 
+
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 char* this_machine_id = "default_server";
@@ -433,6 +434,21 @@ static bool is_there_lock(char* key_name)
 	return false;
 }
 
+static struct lock* find_lock(char* key_name)
+{
+	struct lock_node* cur_node = lock_head;
+	while (cur_node != NULL)
+	{
+		if (strcmp(cur_node->data->key->key, key_name) == 0)
+		{
+			return cur_node->data;
+		}
+		cur_node = cur_node -> next;
+	}
+	return NULL;
+}
+
+
 struct key* find_key(char* key_name)
 {
 	struct key_node* cur_node = key_head;
@@ -467,6 +483,75 @@ static int lock(char* key_name)
 		else
 		{
 		    insert_lock(create_lock(key, this_machine_id));
+		    return 0;
+		}
+	}
+}
+
+static void delete_lock(struct lock* lock)
+{
+	kfree(lock->owner);
+	kfree(lock);
+}
+
+static void delete_lock_node(struct lock_node* node)
+{
+	delete_lock(node->data);
+	kfree(node);
+}
+
+
+static void remove_lock(struct lock* lock)
+{
+	struct lock_node* temp;
+	struct lock_node* cur_node;
+	cur_node = lock_head;
+	if (cur_node -> data == lock)
+	{
+		lock_head = cur_node->next;
+		//delete_lock_node(cur_node);
+		return;
+	}
+
+	while (cur_node != NULL)
+	{
+		if (cur_node->next != NULL)
+		{
+			if (cur_node->next->data == lock)
+			{
+				temp = cur_node->next;
+				if (cur_node->next == lock_tail)
+				{
+					lock_tail = cur_node;
+				}
+				cur_node->next = cur_node->next->next;
+				//delete_lock_node(temp);
+			}
+		}
+		cur_node = cur_node->next;
+	}
+}
+
+
+static int unlock(char* key_name)
+{
+	struct lock* lock;
+	lock = find_lock(key_name);
+	if (lock == NULL)
+	{
+	    printk(KERN_INFO "charDev : there is no such lock: %s\n", key_name);
+		return -1;
+	}
+	else
+	{
+		if (strcmp(lock->owner, this_machine_id) != 0)
+		{
+		    printk(KERN_INFO "charDev : %s tries to unlock %s, which owned by %s\n", this_machine_id, key_name, lock->owner);
+			return -1;
+		}
+		else
+		{
+		    remove_lock(lock);
 		    return 0;
 		}
 	}
@@ -518,6 +603,15 @@ static int make_command(char* buff, int length)
 			return -1;
 		}
 		return lock(key_name);
+	}
+	if (strcmp(command, "unlock-key") == 0)
+	{
+		key_name = split(str, " ", &next, length_left);
+		if (key_name == NULL)
+		{
+			return -1;
+		}
+		return unlock(key_name);
 	}
 	return -1;
 }
