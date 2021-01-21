@@ -14,9 +14,11 @@ insmod ckv.ko
 rmmod ckv
 ```
 
-`make` compile and link
-`insmod ckv.ko` to include new module into kernel, you will have `/dev/ckv` device
-`rmmod ckv`  to remove module
+-`make`: compile and link
+
+-`insmod ckv.ko`: to include new module into kernel, you will have `/dev/ckv` device
+
+-`rmmod ckv`:  to remove module
 
 # Possible interaction:
 

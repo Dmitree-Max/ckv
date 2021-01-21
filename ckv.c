@@ -12,6 +12,9 @@
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
+char* this_machine_id = "default_server";
+module_param(this_machine_id, charp, 0);
+
 struct key
 {
     char* key;
@@ -389,6 +392,7 @@ static char* split(char* str, char* delimiter, char** next, int max_length)
 			if (*symbol == '\n')
 			{
 				*symbol = *delimiter;
+				continue;
 			}
 			else
 			{
@@ -414,6 +418,60 @@ static char* split(char* str, char* delimiter, char** next, int max_length)
 	}
 	return result;
 }
+
+static bool is_there_lock(char* key_name)
+{
+	struct lock_node* cur_node = lock_head;
+	while (cur_node != NULL)
+	{
+		if (strcmp(cur_node->data->key->key, key_name) == 0)
+		{
+			return true;
+		}
+		cur_node = cur_node -> next;
+	}
+	return false;
+}
+
+struct key* find_key(char* key_name)
+{
+	struct key_node* cur_node = key_head;
+	while (cur_node != NULL)
+	{
+	    printk(KERN_INFO "charDev : comparing: from list:%s|||  current:%s|||\n", cur_node->data->key, key_name);
+		if (strcmp(cur_node->data->key, key_name) == 0)
+		{
+			return cur_node->data;
+		}
+		cur_node = cur_node -> next;
+	}
+	return NULL;
+}
+
+static int lock(char* key_name)
+{
+	struct key* key;
+	if (is_there_lock(key_name))
+	{
+	    printk(KERN_INFO "charDev : try to lock locked key: %s\n", key_name);
+		return -1;
+	}
+	else
+	{
+		key = find_key(key_name);
+		if (key == NULL)
+		{
+		    printk(KERN_INFO "charDev : there is no such key: %s\n", key_name);
+			return -1;
+		}
+		else
+		{
+		    insert_lock(create_lock(key, this_machine_id));
+		    return 0;
+		}
+	}
+}
+
 
 static int make_command(char* buff, int length)
 {
@@ -451,6 +509,15 @@ static int make_command(char* buff, int length)
 		}
 	    insert_key(create_key(key_name, key_value));
 		return 0;
+	}
+	if (strcmp(command, "lock-key") == 0)
+	{
+		key_name = split(str, " ", &next, length_left);
+		if (key_name == NULL)
+		{
+			return -1;
+		}
+		return lock(key_name);
 	}
 	return -1;
 }
