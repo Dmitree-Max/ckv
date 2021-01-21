@@ -1,4 +1,5 @@
 obj-m += ckv.o
+ckv-objs := ./ckv_src.o ./commands.o ./string_functions.o ./structures.o ./list_interactions.o ./buffer_interactions.o
 
 KDIR = /lib/modules/`uname -r`/build
 
