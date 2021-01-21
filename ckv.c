@@ -50,13 +50,13 @@ static struct class *cl;  // Global variable for the device class
 static char device_buffer[BUFFER_SIZE];
 static char temp_buffer[BUFFER_SIZE];
 
-static int my_open(struct inode *i, struct file *f)
+static int device_open(struct inode *i, struct file *f)
 {
   printk(KERN_INFO "Driver: open()\n");
   return 0;
 }
 
-static int my_close(struct inode *i, struct file *f)
+static int device_close(struct inode *i, struct file *f)
 {
   printk(KERN_INFO "Driver: close()\n");
   return 0;
@@ -188,7 +188,6 @@ static int send_buffer(char *buff, int bytes_to_send, loff_t *ppos)
 	int bytes_really_send;
 
 	bytes_really_send = bytes_to_send - copy_to_user(buff, device_buffer, bytes_to_send);
-    printk(KERN_INFO "charDev : Read: bytes send: %i\n", bytes_really_send);
     *ppos += bytes_really_send;
 	return bytes_really_send;
 }
@@ -253,34 +252,24 @@ static ssize_t device_read(struct file *fp, char *buff, size_t length, loff_t *p
 			size_in_min_buffer_left -= bytes_written;
 		}
 
-        return send_buffer(buff, bytes_written, ppos);
+        bytes_written = send_buffer(buff, bytes_written, ppos);
+        printk(KERN_INFO "charDev : device has been read %d\n", bytes_written);
+        return bytes_written;
 }
 
-static ssize_t device_write(struct file *fp, const char *buff, size_t length, loff_t *ppos)
-{
-        int maxbytes;           /* maximum bytes that can be read from ppos to BUFFER_SIZE*/
-        int bytes_to_write;     /* gives the number of bytes to write*/
-        int bytes_writen;       /* number of bytes actually writen*/
-        maxbytes = BUFFER_SIZE - *ppos;
-        if (maxbytes > length)
-                bytes_to_write = length;
-        else
-                bytes_to_write = maxbytes;
 
-        bytes_writen = bytes_to_write - copy_from_user(device_buffer + *ppos, buff, bytes_to_write);
-        printk(KERN_INFO "charDev : device has been written %d\n", bytes_writen);
-        *ppos += bytes_writen;
-        return bytes_writen;
+static void replace_chars(char* str, char replace_from, char replace_to)
+{
+	char* symbol = str;
+	while (*symbol != '\0')
+	{
+		if (*symbol == replace_from)
+		{
+			*symbol = replace_to;
+		}
+		symbol++;
+	}
 }
-
-static struct file_operations pugs_fops =
-{
-  .owner = THIS_MODULE,
-  .open = my_open,
-  .release = my_close,
-  .read = device_read,
-  .write = device_write
-};
 
 
 static struct key* create_key(char* key, char* value)
@@ -291,6 +280,8 @@ static struct key* create_key(char* key, char* value)
      struct key* new_key;
 
      new_key = kmalloc(sizeof(struct key), GFP_KERNEL);
+     replace_chars(key, '\n', ' ');
+     replace_chars(value, '\n', ' ');
 
      key_length = strlen(key) + 1;
      key_memory = kmalloc(sizeof(char) * key_length, GFP_KERNEL);
@@ -373,6 +364,130 @@ static void insert_lock(struct lock* lock)
     return;
 }
 
+
+static char* split(char* str, char* delimiter, char** next, int max_length)
+{
+	int state = 0; // 0 - whitespaces before token, 1 - token didnt find token
+	int length = 0;
+	char* symbol;
+	char* result;
+	symbol = str;
+	while(*symbol != '\0')
+	{
+		if (*symbol == *delimiter)
+		{
+			if (state == 1)
+			{
+				*symbol = '\0';
+				*next = (symbol + 1);
+				break;
+			}
+		}
+		else
+		{
+			// echo adds '\n' symbol to the end
+			if (*symbol == '\n')
+			{
+				*symbol = *delimiter;
+			}
+			else
+			{
+				if (state == 0)
+				{
+					state = 1;
+					result = symbol;
+				}
+			}
+		}
+
+		symbol++;
+		length++;
+		if (length > max_length)
+		{
+			break;
+		}
+	}
+
+	if (state == 0)
+	{
+		return NULL;
+	}
+	return result;
+}
+
+static int make_command(char* buff, int length)
+{
+	char* command;
+	char* key_name;
+	char* key_value;
+	char* next = NULL;
+	char* str = NULL;
+    int length_left;
+    str = buff;
+    length_left = length;
+
+	command = split(str, " ", &next, length_left);
+	if (command == NULL)
+	{
+	    printk(KERN_INFO "charDev : no command %s\n", key_name);
+	    return -1;
+	}
+	length_left -= next - str;
+	str = next;
+    printk(KERN_INFO "charDev : command %s\n", command);
+	if (strcmp(command, "add-key") == 0)
+	{
+		key_name = split(str, " ", &next, length_left);
+		if (key_name == NULL)
+		{
+			return -1;
+		}
+		length_left -= next - str;
+		str = next;
+		key_value = split(str, " ", &next, length_left);
+		if (key_value == NULL)
+		{
+			return -1;
+		}
+	    insert_key(create_key(key_name, key_value));
+		return 0;
+	}
+	return -1;
+}
+
+static ssize_t device_write(struct file *fp, const char *buff, size_t length, loff_t *ppos)
+{
+        int size_in_min_buffer_left, bytes_written, result;
+
+		size_in_min_buffer_left = MIN(length, BUFFER_SIZE - 1);
+        bytes_written = size_in_min_buffer_left - copy_from_user(device_buffer, buff, size_in_min_buffer_left);
+
+        device_buffer[bytes_written] = '\0';
+        printk(KERN_INFO "charDev : device has been written %d\n", bytes_written);
+        *ppos += bytes_written;
+
+        result = make_command(device_buffer, bytes_written);
+        if (result < 0)
+        {
+            printk(KERN_INFO "charDev : make_command returned error: %i\n", result);
+        	return result;
+        }
+        return bytes_written;
+}
+
+
+
+static struct file_operations pugs_fops =
+{
+  .owner = THIS_MODULE,
+  .open = device_open,
+  .release = device_close,
+  .read = device_read,
+  .write = device_write
+};
+
+
+
 static void make_test_keys(void)
 {
     char first_key[]             = "test_key";
@@ -392,7 +507,7 @@ static void make_test_lock(struct key* key)
 
 static int __init ofcd_init(void) /* Constructor */
 {
-  printk(KERN_INFO "Namaskar: ofcd registered");
+  printk(KERN_INFO "ofcd registered");
   if (alloc_chrdev_region(&first, 0, 1, "Dmitree") < 0)
   {
     return -1;
@@ -431,11 +546,11 @@ static void __exit ofcd_exit(void) /* Destructor */
   device_destroy(cl, first);
   class_destroy(cl);
   unregister_chrdev_region(first, 1);
-  printk(KERN_INFO "Alvida: ofcd unregistered");
+  printk(KERN_INFO "ofcd unregistered");
 }
  
 module_init(ofcd_init);
 module_exit(ofcd_exit);
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Anil Kumar Pugalia <email_at_sarika-pugs_dot_com>");
-MODULE_DESCRIPTION("Our First Character Driver");
+MODULE_AUTHOR("Dmitree Maximenko <https://github.com/Dmitree-Max>");
+MODULE_DESCRIPTION("Character device driver for key, values and locks");
