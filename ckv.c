@@ -336,10 +336,32 @@ static struct lock_node* create_lock_node(struct lock* lock)
 	return new_node;
 }
 
-
-static void insert_key(struct key* key)
+struct key* find_key(char* key_name)
 {
-    struct key_node* new_node = create_key_node(key);
+	struct key_node* cur_node;
+
+	cur_node = key_head;
+	while (cur_node != NULL)
+	{
+		if (strcmp(cur_node->data->key, key_name) == 0)
+		{
+			return cur_node->data;
+		}
+		cur_node = cur_node -> next;
+	}
+	return NULL;
+}
+
+static int insert_key(struct key* key)
+{
+	struct key_node* new_node;
+
+	if (find_key(key->key) != NULL)
+	{
+	    printk(KERN_INFO "charDev : Error! there is key with same name: %s\n", key->key);
+	    return -1;
+	}
+    new_node = create_key_node(key);
     if (key_tail != NULL)
     {
        key_tail->next = new_node;
@@ -349,7 +371,7 @@ static void insert_key(struct key* key)
        key_head = new_node;
     }
     key_tail = new_node;
-    return;
+    return 0;
 }
 
 
@@ -449,20 +471,7 @@ static struct lock* find_lock(char* key_name)
 }
 
 
-struct key* find_key(char* key_name)
-{
-	struct key_node* cur_node = key_head;
-	while (cur_node != NULL)
-	{
-	    printk(KERN_INFO "charDev : comparing: from list:%s|||  current:%s|||\n", cur_node->data->key, key_name);
-		if (strcmp(cur_node->data->key, key_name) == 0)
-		{
-			return cur_node->data;
-		}
-		cur_node = cur_node -> next;
-	}
-	return NULL;
-}
+
 
 static int lock(char* key_name)
 {
@@ -509,7 +518,7 @@ static void remove_lock(struct lock* lock)
 	if (cur_node -> data == lock)
 	{
 		lock_head = cur_node->next;
-		//delete_lock_node(cur_node);
+		delete_lock_node(cur_node);
 		return;
 	}
 
@@ -525,7 +534,7 @@ static void remove_lock(struct lock* lock)
 					lock_tail = cur_node;
 				}
 				cur_node->next = cur_node->next->next;
-				//delete_lock_node(temp);
+				delete_lock_node(temp);
 			}
 		}
 		cur_node = cur_node->next;
@@ -583,6 +592,7 @@ static int make_command(char* buff, int length)
 		key_name = split(str, " ", &next, length_left);
 		if (key_name == NULL)
 		{
+		    printk(KERN_INFO "charDev : key name is NULL\n");
 			return -1;
 		}
 		length_left -= next - str;
@@ -590,9 +600,10 @@ static int make_command(char* buff, int length)
 		key_value = split(str, " ", &next, length_left);
 		if (key_value == NULL)
 		{
+		    printk(KERN_INFO "charDev : key value is NULL\n");
 			return -1;
 		}
-	    insert_key(create_key(key_name, key_value));
+	    return insert_key(create_key(key_name, key_value));
 		return 0;
 	}
 	if (strcmp(command, "lock-key") == 0)
@@ -600,6 +611,7 @@ static int make_command(char* buff, int length)
 		key_name = split(str, " ", &next, length_left);
 		if (key_name == NULL)
 		{
+		    printk(KERN_INFO "charDev : key name is NULL\n");
 			return -1;
 		}
 		return lock(key_name);
@@ -609,10 +621,13 @@ static int make_command(char* buff, int length)
 		key_name = split(str, " ", &next, length_left);
 		if (key_name == NULL)
 		{
+		    printk(KERN_INFO "charDev : key name is NULL\n");
 			return -1;
 		}
 		return unlock(key_name);
 	}
+
+    printk(KERN_INFO "charDev : no such command: %s\n", command);
 	return -1;
 }
 
